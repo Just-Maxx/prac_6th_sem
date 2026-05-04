@@ -27,3 +27,15 @@ class BVPProblem:
     num_points: int = 400
     rtol_inner: float = 1e-8
     atol_inner: float = 1e-10
+
+
+@dataclass
+class BVPSolution:
+    p: Array
+    t: Array
+    states: Array
+    residual: Array
+    residual_norm: float
+    iterations: int
+    converged: bool
+    residual_history: list[float]
