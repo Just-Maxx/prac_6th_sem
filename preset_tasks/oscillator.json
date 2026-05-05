@@ -1,0 +1,24 @@
+{
+    "name": "Осциллятор",
+    "t0": 0.0,
+    "t1": 1.5708,
+    "dim": 2,
+    "rhs": [
+        "x2",
+        "-x1"
+    ],
+    "boundary_conditions": [
+        "x1(t0) = 0",
+        "x1(t1) = 1"
+    ],
+    "p0": [
+        0.2,
+        0.8
+    ],
+    "tolerance": 1e-8,
+    "max_iterations": 10,
+    "num_points": 300,
+    "plot_type": "Компоненты от времени",
+    "phase_x": "x1",
+    "phase_y": "x2"
+}

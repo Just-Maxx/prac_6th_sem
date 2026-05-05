@@ -1,5 +1,7 @@
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox
+from tkinter import simpledialog
 from tkinter import ttk
 
 import matplotlib.pyplot as plt
@@ -9,6 +11,21 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from src.bvp_solver import solve_bvp_continuation
 from src.models import BVPProblem
 from src.parser import build_boundary_functions, build_rhs_functions
+from src.app_texts import (
+    ABOUT_AUTHOR_TEXT,
+    ABOUT_PROGRAM_TEXT,
+    INPUT_HELP_TEXT,
+)
+from src.task_storage import (
+    delete_all_user_tasks,
+    delete_user_task,
+    list_preset_tasks,
+    list_user_tasks,
+    load_task,
+    save_user_task,
+)
+from pathlib import Path
+from tkinter import simpledialog
 
 
 class BVPApp:
@@ -19,6 +36,7 @@ class BVPApp:
 
         self.canvas = None
 
+        self._create_menu()
         self._create_widgets()
 
     def _create_widgets(self) -> None:
@@ -114,6 +132,7 @@ class BVPApp:
             values=[
                 "Компоненты от времени",
                 "Фазовая плоскость",
+                "Сходимость"
             ],
             state="readonly",
             width=22,
@@ -180,6 +199,302 @@ class BVPApp:
         self.plot_frame = ttk.Frame(output_frame)
         self.plot_frame.pack(fill=tk.BOTH, expand=True)
 
+    def _create_menu(self) -> None:
+        menu_bar = tk.Menu(self.root)
+
+        file_menu = tk.Menu(menu_bar, tearoff=0)
+        file_menu.add_command(
+            label="Сохранить задачу...",
+            command=self._save_current_task,
+        )
+        file_menu.add_command(
+            label="Загрузить сохранённую задачу...",
+            command=self._load_user_task,
+        )
+        file_menu.add_command(
+            label="Удалить сохранённую задачу...",
+            command=self._delete_user_task,
+        )
+        file_menu.add_command(
+            label="Удалить все сохранённые задачи...",
+            command=self._delete_all_user_tasks,
+        )
+        file_menu.add_separator()
+        file_menu.add_command(
+            label="Выход",
+            command=self.root.destroy,
+        )
+        menu_bar.add_cascade(label="Файл", menu=file_menu)
+
+        examples_menu = tk.Menu(menu_bar, tearoff=0)
+        examples_menu.add_command(
+            label="Загрузить пример...",
+            command=self._load_preset_task,
+        )
+        menu_bar.add_cascade(label="Примеры", menu=examples_menu)
+
+        help_menu = tk.Menu(menu_bar, tearoff=0)
+        help_menu.add_command(
+            label="Формат ввода",
+            command=self._show_input_help,
+        )
+        help_menu.add_command(
+            label="О программе",
+            command=self._show_about_program,
+        )
+        help_menu.add_command(
+            label="Об авторе",
+            command=self._show_about_author,
+        )
+        menu_bar.add_cascade(label="Справка", menu=help_menu)
+
+        self.root.config(menu=menu_bar)
+
+    def _show_input_help(self) -> None:
+        messagebox.showinfo("Формат ввода", INPUT_HELP_TEXT)
+
+    def _show_about_program(self) -> None:
+        messagebox.showinfo("О программе", ABOUT_PROGRAM_TEXT)
+
+    def _show_about_author(self) -> None:
+        author_window = tk.Toplevel(self.root)
+        author_window.title("Об авторе")
+        author_window.resizable(False, False)
+
+        content_frame = ttk.Frame(author_window, padding=20)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+
+        project_root = Path(__file__).resolve().parents[1]
+        photo_path = project_root / "assets" / "author.png"
+
+        try:
+            photo = tk.PhotoImage(file=str(photo_path))
+            photo_label = ttk.Label(content_frame, image=photo)
+            photo_label.image = photo
+            photo_label.pack(pady=(0, 12))
+        except tk.TclError:
+            ttk.Label(
+                content_frame,
+                text="Фото автора не найдено.",
+                foreground="gray",
+            ).pack(pady=(0, 12))
+
+        ttk.Label(
+            content_frame,
+            text=ABOUT_AUTHOR_TEXT,
+            justify=tk.CENTER,
+            wraplength=450,
+        ).pack(pady=(0, 15))
+
+        close_button = ttk.Button(
+            content_frame,
+            text="OK",
+            command=author_window.destroy,
+        )
+        close_button.pack(anchor="e")
+
+    def _collect_task_data(self) -> dict:
+        dim = int(self.dim_entry.get())
+
+        return {
+            "t0": float(self.t0_entry.get()),
+            "t1": float(self.t1_entry.get()),
+            "dim": dim,
+            "rhs": self._read_lines(self.rhs_text),
+            "boundary_conditions": self._read_lines(self.boundary_text),
+            "p0": self._read_p0(dim).tolist(),
+            "tolerance": float(self.tolerance_entry.get()),
+            "max_iterations": int(self.max_iter_entry.get()),
+            "num_points": int(self.num_points_entry.get()),
+            "plot_type": self.plot_type_var.get(),
+            "phase_x": self.phase_x_var.get(),
+            "phase_y": self.phase_y_var.get(),
+        }
+
+    def _set_entry_value(self, entry: ttk.Entry, value: str) -> None:
+        entry.delete(0, tk.END)
+        entry.insert(0, value)
+
+    def _set_text_value(self, text_widget: tk.Text, value: str) -> None:
+        text_widget.delete("1.0", tk.END)
+        text_widget.insert("1.0", value)
+
+    def _apply_task_data(self, task_data: dict) -> None:
+        self._set_entry_value(self.t0_entry, str(task_data["t0"]))
+        self._set_entry_value(self.t1_entry, str(task_data["t1"]))
+        self._set_entry_value(self.dim_entry, str(task_data["dim"]))
+
+        self._set_text_value(
+            self.rhs_text,
+            "\n".join(task_data["rhs"]),
+        )
+        self._set_text_value(
+            self.boundary_text,
+            "\n".join(task_data["boundary_conditions"]),
+        )
+
+        self._set_entry_value(
+            self.p0_entry,
+            ", ".join(str(value) for value in task_data["p0"]),
+        )
+        self._set_entry_value(
+            self.tolerance_entry,
+            str(task_data.get("tolerance", "1e-8")),
+        )
+        self._set_entry_value(
+            self.max_iter_entry,
+            str(task_data.get("max_iterations", 10)),
+        )
+        self._set_entry_value(
+            self.num_points_entry,
+            str(task_data.get("num_points", 300)),
+        )
+
+        self.plot_type_var.set(
+            task_data.get("plot_type", "Компоненты от времени")
+        )
+        self.phase_x_var.set(task_data.get("phase_x", "x1"))
+        self.phase_y_var.set(task_data.get("phase_y", "x2"))
+
+    def _choose_task_file(
+        self,
+        title: str,
+        task_files: list[Path],
+    ) -> Path | None:
+        if not task_files:
+            messagebox.showinfo(title, "Нет доступных задач.")
+            return None
+
+        task_names = "\n".join(
+            f"{index + 1}. {file_path.stem}"
+            for index, file_path in enumerate(task_files)
+        )
+
+        choice = simpledialog.askinteger(
+            title,
+            f"Выберите номер задачи:\n\n{task_names}",
+            minvalue=1,
+            maxvalue=len(task_files),
+        )
+
+        if choice is None:
+            return None
+
+        return task_files[choice - 1]
+
+    def _save_current_task(self) -> None:
+        try:
+            task_name = simpledialog.askstring(
+                "Сохранить задачу",
+                "Введите название задачи:",
+            )
+
+            if not task_name:
+                return
+
+            task_data = self._collect_task_data()
+            task_data["name"] = task_name
+
+            file_path = save_user_task(task_name, task_data)
+
+            messagebox.showinfo(
+                "Сохранение",
+                f"Задача сохранена:\n{file_path.name}",
+            )
+
+        except Exception as error:
+            messagebox.showerror("Ошибка", str(error))
+
+    def _load_user_task(self) -> None:
+        try:
+            task_file = self._choose_task_file(
+                "Загрузить сохранённую задачу",
+                list_user_tasks(),
+            )
+
+            if task_file is None:
+                return
+
+            task_data = load_task(task_file)
+            self._apply_task_data(task_data)
+
+            messagebox.showinfo(
+                "Загрузка",
+                f"Задача загружена:\n{task_file.name}",
+            )
+
+        except Exception as error:
+            messagebox.showerror("Ошибка", str(error))
+
+    def _load_preset_task(self) -> None:
+        try:
+            task_file = self._choose_task_file(
+                "Загрузить пример",
+                list_preset_tasks(),
+            )
+
+            if task_file is None:
+                return
+
+            task_data = load_task(task_file)
+            self._apply_task_data(task_data)
+
+            messagebox.showinfo(
+                "Загрузка примера",
+                f"Пример загружен:\n{task_file.name}",
+            )
+
+        except Exception as error:
+            messagebox.showerror("Ошибка", str(error))
+
+    def _delete_user_task(self) -> None:
+        try:
+            task_file = self._choose_task_file(
+                "Удалить сохранённую задачу",
+                list_user_tasks(),
+            )
+
+            if task_file is None:
+                return
+
+            confirmed = messagebox.askyesno(
+                "Подтверждение",
+                f"Удалить задачу '{task_file.stem}'?",
+            )
+
+            if not confirmed:
+                return
+
+            delete_user_task(task_file)
+
+            messagebox.showinfo(
+                "Удаление",
+                "Задача удалена.",
+            )
+
+        except Exception as error:
+            messagebox.showerror("Ошибка", str(error))
+
+    def _delete_all_user_tasks(self) -> None:
+        try:
+            confirmed = messagebox.askyesno(
+                "Подтверждение",
+                "Удалить все сохранённые пользовательские задачи?",
+            )
+
+            if not confirmed:
+                return
+
+            delete_all_user_tasks()
+
+            messagebox.showinfo(
+                "Удаление",
+                "Все сохранённые задачи удалены.",
+            )
+
+        except Exception as error:
+            messagebox.showerror("Ошибка", str(error))
+
     def _add_entry(
         self,
         parent: ttk.Frame,
@@ -224,7 +539,28 @@ class BVPApp:
         return np.array(values, dtype=float)
 
     def _format_number(self, value: float) -> str:
+        value = float(value)
+
+        if abs(value) < 1e-8:
+            value = 0.0
+
         return f"{value:.6g}"
+
+    def _format_array(self, values) -> str:
+        array = np.asarray(values, dtype=float)
+
+        formatted_values = [
+            self._format_number(value)
+            for value in array
+        ]
+
+        return "[" + ", ".join(formatted_values) + "]"
+
+    def _format_bool(self, value: bool) -> str:
+        if value:
+            return "Да"
+
+        return "Нет"
 
     def _format_array(self, values) -> str:
         array = np.asarray(values, dtype=float)
@@ -299,7 +635,7 @@ class BVPApp:
         self.result_text.delete("1.0", tk.END)
 
         lines = [
-            f"Сошлось: {solution.converged}",
+            f"Сошлось: {self._format_bool(solution.converged)}",
             f"Количество итераций: {solution.iterations}",
             "",
             "Найденный параметр p:",
@@ -328,8 +664,6 @@ class BVPApp:
             self.canvas.get_tk_widget().destroy()
 
         figure, axis = plt.subplots(figsize=(6, 4))
-
-        plot_type = self.plot_type_var.get()
 
         plot_type = self.plot_type_var.get()
 
@@ -374,6 +708,21 @@ class BVPApp:
             axis.set_title(f"Фазовая траектория {x_axis_name}-{y_axis_name}")
             axis.axis("equal")
 
+        elif plot_type == "Сходимость":
+            iterations = list(range(len(solution.residual_history)))
+
+            axis.plot(
+                iterations,
+                solution.residual_history,
+                marker="o",
+                label="||Phi(p)||",
+            )
+
+            axis.set_xlabel("Номер итерации")
+            axis.set_ylabel("Норма ошибки")
+            axis.set_title("Сходимость метода")
+            axis.set_yscale("log")
+
         else:
             for index in range(solution.states.shape[1]):
                 axis.plot(
@@ -383,7 +732,7 @@ class BVPApp:
                 )
 
             axis.set_xlabel("t")
-            axis.set_ylabel("state")
+            axis.set_ylabel("Значение")
             axis.set_title("Компоненты решения от времени")
 
         axis.grid(True)
