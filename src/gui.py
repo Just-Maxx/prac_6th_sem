@@ -3,6 +3,7 @@ from pathlib import Path
 from tkinter import messagebox
 from tkinter import simpledialog
 from tkinter import ttk
+from tkinter import filedialog
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,6 +25,8 @@ from src.task_storage import (
     load_task,
     save_user_task,
 )
+from src.result_storage import save_current_plot
+from src.result_storage import save_full_result
 from pathlib import Path
 from tkinter import simpledialog
 
@@ -35,9 +38,13 @@ class BVPApp:
         self.root.geometry("1250x820")
 
         self.canvas = None
+        self.current_solution = None
+        self.current_task_data = None
+        self.current_figure = None
 
         self._create_menu()
         self._create_widgets()
+        self._bind_hotkeys()
 
     def _create_widgets(self) -> None:
         main_frame = ttk.Frame(self.root, padding=10)
@@ -204,9 +211,18 @@ class BVPApp:
 
         file_menu = tk.Menu(menu_bar, tearoff=0)
         file_menu.add_command(
-            label="Сохранить задачу...",
+            label="Сохранить задачу...     Ctrl+S",
             command=self._save_current_task,
         )
+        file_menu.add_command(
+            label="Сохранить результат...     Ctrl+O",
+            command=self._save_current_result,
+        )
+        file_menu.add_command(
+            label="Сохранить текущий график...",
+            command=self._save_current_plot,
+        )
+        file_menu.add_separator()
         file_menu.add_command(
             label="Загрузить сохранённую задачу...",
             command=self._load_user_task,
@@ -221,7 +237,7 @@ class BVPApp:
         )
         file_menu.add_separator()
         file_menu.add_command(
-            label="Выход",
+            label="Выход     Ctrl+Q",
             command=self.root.destroy,
         )
         menu_bar.add_cascade(label="Файл", menu=file_menu)
@@ -232,6 +248,13 @@ class BVPApp:
             command=self._load_preset_task,
         )
         menu_bar.add_cascade(label="Примеры", menu=examples_menu)
+
+        view_menu = tk.Menu(menu_bar, tearoff=0)
+        view_menu.add_command(
+            label="Таблица решения     Ctrl+T",
+            command=self._show_solution_table,
+        )
+        menu_bar.add_cascade(label="Вид", menu=view_menu)
 
         help_menu = tk.Menu(menu_bar, tearoff=0)
         help_menu.add_command(
@@ -400,6 +423,91 @@ class BVPApp:
             messagebox.showinfo(
                 "Сохранение",
                 f"Задача сохранена:\n{file_path.name}",
+            )
+
+        except Exception as error:
+            messagebox.showerror("Ошибка", str(error))
+
+    def _get_current_task_name(self) -> str:
+        if self.current_task_data is not None:
+            return str(self.current_task_data.get("name", "task"))
+
+        return "task"
+
+    def _save_current_result(self) -> None:
+        try:
+            if self.current_solution is None:
+                messagebox.showinfo(
+                    "Сохранение результата",
+                    "Сначала нужно решить задачу.",
+                )
+                return
+
+            if self.current_task_data is None:
+                self.current_task_data = self._collect_task_data()
+
+            task_name = simpledialog.askstring(
+                "Сохранить результат",
+                "Введите название результата:",
+                initialvalue=self._get_current_task_name(),
+            )
+
+            if not task_name:
+                return
+
+            self.current_task_data["name"] = task_name
+
+            result_text = self.result_text.get("1.0", tk.END).strip()
+
+            result_dir = save_full_result(
+                task_name=task_name,
+                task_data=self.current_task_data,
+                solution=self.current_solution,
+                figure=self.current_figure,
+                result_text=result_text,
+            )
+
+            messagebox.showinfo(
+                "Сохранение результата",
+                (
+                    "Результат сохранён в папку:\n"
+                    f"{result_dir.name}"
+                ),
+            )
+
+        except Exception as error:
+            messagebox.showerror("Ошибка", str(error))
+
+    def _save_current_plot(self) -> None:
+        try:
+            if self.current_figure is None:
+                messagebox.showinfo(
+                    "Сохранение графика",
+                    "Сначала нужно построить график.",
+                )
+                return
+
+            file_path = filedialog.asksaveasfilename(
+                title="Сохранить график",
+                defaultextension=".png",
+                filetypes=[
+                    ("PNG image", "*.png"),
+                    ("PDF file", "*.pdf"),
+                    ("All files", "*.*"),
+                ],
+            )
+
+            if not file_path:
+                return
+
+            save_current_plot(
+                file_path=Path(file_path),
+                figure=self.current_figure,
+            )
+
+            messagebox.showinfo(
+                "Сохранение графика",
+                "График сохранён.",
             )
 
         except Exception as error:
@@ -625,6 +733,9 @@ class BVPApp:
                 max_iterations=max_iterations,
             )
 
+            self.current_solution = solution
+            self.current_task_data = self._collect_task_data()
+
             self._show_result(solution)
             self._show_plot(solution)
 
@@ -658,6 +769,86 @@ class BVPApp:
             )
 
         self.result_text.insert(tk.END, "\n".join(lines))
+
+    def _show_solution_table(self) -> None:
+        if self.current_solution is None:
+            messagebox.showinfo(
+                "Таблица решения",
+                "Сначала нужно решить задачу.",
+            )
+            return
+
+        solution = self.current_solution
+        table_window = tk.Toplevel(self.root)
+        table_window.title("Таблица решения")
+        table_window.geometry("900x500")
+
+        main_frame = ttk.Frame(table_window, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        columns = ["t"] + [
+            f"x{index + 1}"
+            for index in range(solution.states.shape[1])
+        ]
+
+        tree = ttk.Treeview(
+            main_frame,
+            columns=columns,
+            show="headings",
+        )
+
+        for column in columns:
+            tree.heading(column, text=column)
+            tree.column(column, width=120, anchor=tk.CENTER)
+
+        vertical_scrollbar = ttk.Scrollbar(
+            main_frame,
+            orient=tk.VERTICAL,
+            command=tree.yview,
+        )
+        horizontal_scrollbar = ttk.Scrollbar(
+            main_frame,
+            orient=tk.HORIZONTAL,
+            command=tree.xview,
+        )
+
+        tree.configure(
+            yscrollcommand=vertical_scrollbar.set,
+            xscrollcommand=horizontal_scrollbar.set,
+        )
+
+        tree.grid(row=0, column=0, sticky="nsew")
+        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
+
+        main_frame.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
+
+        for row_index, t_value in enumerate(solution.t):
+            values = [self._format_number(t_value)]
+
+            for state_value in solution.states[row_index]:
+                values.append(self._format_number(state_value))
+
+            tree.insert("", tk.END, values=values)
+
+        close_button = ttk.Button(
+            main_frame,
+            text="Закрыть",
+            command=table_window.destroy,
+        )
+        close_button.grid(row=2, column=0, sticky="e", pady=(10, 0))
+
+        table_window.transient(self.root)
+        table_window.grab_set()
+
+    def _bind_hotkeys(self) -> None:
+        self.root.bind("<Control-r>", lambda event: self._solve_problem())
+        self.root.bind("<Control-s>", lambda event: self._save_current_task())
+        self.root.bind("<Control-o>", lambda event: self._load_user_task())
+        self.root.bind(
+            "<Control-t>", lambda event: self._show_solution_table())
+        self.root.bind("<Control-q>", lambda event: self.root.destroy())
 
     def _show_plot(self, solution) -> None:
         if self.canvas is not None:
@@ -739,11 +930,11 @@ class BVPApp:
         axis.legend()
         figure.tight_layout()
 
+        self.current_figure = figure
+
         self.canvas = FigureCanvasTkAgg(figure, master=self.plot_frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-        plt.close(figure)
 
 
 def run_app() -> None:
