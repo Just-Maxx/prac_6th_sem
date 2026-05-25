@@ -27,8 +27,6 @@ from src.task_storage import (
 )
 from src.result_storage import save_current_plot
 from src.result_storage import save_full_result
-from pathlib import Path
-from tkinter import simpledialog
 
 
 class BVPApp:
@@ -215,7 +213,7 @@ class BVPApp:
             command=self._save_current_task,
         )
         file_menu.add_command(
-            label="Сохранить результат...     Ctrl+O",
+            label="Сохранить результат...",
             command=self._save_current_result,
         )
         file_menu.add_command(
@@ -224,7 +222,7 @@ class BVPApp:
         )
         file_menu.add_separator()
         file_menu.add_command(
-            label="Загрузить сохранённую задачу...",
+            label="Загрузить сохранённую задачу...     Ctrl+O",
             command=self._load_user_task,
         )
         file_menu.add_command(
@@ -653,16 +651,6 @@ class BVPApp:
             value = 0.0
 
         return f"{value:.6g}"
-
-    def _format_array(self, values) -> str:
-        array = np.asarray(values, dtype=float)
-
-        formatted_values = [
-            self._format_number(value)
-            for value in array
-        ]
-
-        return "[" + ", ".join(formatted_values) + "]"
 
     def _format_bool(self, value: bool) -> str:
         if value:
