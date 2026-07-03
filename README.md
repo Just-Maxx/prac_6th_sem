@@ -161,6 +161,7 @@ python3 main.py
 
 ```bash
 python3 -m pytest -q
+```
 
 ## История изменений
 
